@@ -1,15 +1,23 @@
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.unideb.tesla.camera.dto.DisclosureSchedule;
-import com.unideb.tesla.camera.dto.TeslaMessage;
 import com.unideb.tesla.camera.dto.Packet;
+import com.unideb.tesla.camera.dto.TeslaMessage;
 import org.apache.commons.lang3.SerializationUtils;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
+import retrofit2.converter.scalars.ScalarsConverterFactory;
 
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.InetAddress;
 import java.net.MulticastSocket;
+import java.net.NetworkInterface;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class StreamingServer {
 
@@ -21,15 +29,23 @@ public class StreamingServer {
 	private String address;
 	private int port;
 	private boolean isRunning;
+	private String webappAddress;
 
 	private KeyChain keyChain;
 
 	private MulticastSocket multicastSocket;
 
-	public StreamingServer(String address, int port) {
+	private Retrofit retrofit;
+	private ChainService chainService;
+	private DeviceService deviceService;
+
+	private List<Device> deviceList;
+
+	public StreamingServer(String address, int port, String webappAddress) {
 
 		this.address = address;
 		this.port = port;
+		this.webappAddress = webappAddress;
 
 	}
 
@@ -74,6 +90,13 @@ public class StreamingServer {
 
 		if (keyChain.isExpired(now)) {
 
+			// fetch chain settings
+			Chain chain = chainService.getActiveChain().execute().body();
+			keyChain = new KeyChain(chain.getIntervalDuration(), chain.getLength(), KEY_LENGTH_IN_BITS, chain.getDelay());
+
+			// fetch devices
+			deviceList = deviceService.getAll().execute().body();
+
 			// regenerate keychain
 			keyChain.generateKeychain();
 
@@ -82,8 +105,14 @@ public class StreamingServer {
 
 		}
 
+		// get current interval index
+		int intervalIndex = (int) Math.floor((Instant.now().toEpochMilli() - keyChain.getStartOfIntervals()[0]) * 1.0 / keyChain.getIntervalDuration());
+
+		// collect devices to send message to
+		List<String> targetDevices = deviceList.stream().filter(device -> (intervalIndex + 1) % device.getFrequency() == 0).map(Device::getMac).collect(Collectors.toList());
+
 		// broadcast teslaMessage
-		TeslaMessage teslaMessage = new TeslaMessage("Hello world!");
+		TeslaMessage teslaMessage = new TeslaMessage("Hello world!", targetDevices);
 		try {
 			broadcastMessage(teslaMessage);
 		} catch (InvalidKeyException e) {
@@ -101,13 +130,44 @@ public class StreamingServer {
 
 	private void initialize() throws NoSuchAlgorithmException, IOException {
 
+		// initialize retrofit
+		// gson for parsing data
+		Gson gson = new GsonBuilder()
+				.setLenient()
+				.create();
+
+		// create retrofit object
+		retrofit = new Retrofit.Builder()
+				.addConverterFactory(ScalarsConverterFactory.create())
+				.addConverterFactory(GsonConverterFactory.create(gson))
+				.baseUrl(webappAddress)
+				.build();
+
+		// create services
+		chainService = retrofit.create(ChainService.class);
+		deviceService = retrofit.create(DeviceService.class);
+
+		// get chain data from REST API
+		Chain chain = chainService.getActiveChain().execute().body();
+
+		// get devices
+		deviceList = deviceService.getAll().execute().body();
+
 		// generate keychain
-		keyChain = new KeyChain(INTERVAL_DURATION, CHAIN_LENGTH, KEY_LENGTH_IN_BITS, DISCLOSURE_DELAY);
+		// keyChain = new KeyChain(INTERVAL_DURATION, CHAIN_LENGTH, KEY_LENGTH_IN_BITS, DISCLOSURE_DELAY);
+		keyChain = new KeyChain(chain.getIntervalDuration(), chain.getLength(), KEY_LENGTH_IN_BITS, chain.getDelay());
 		keyChain.generateKeychain();
 
 		// initialize UDP socket for broadcasting messages
 		multicastSocket = new MulticastSocket();
 		multicastSocket.setBroadcast(true);
+
+		// TODO: remove this later!!!!!!!
+		NetworkInterface networkInterface = NetworkInterface.getByName("wlan1");
+		if (networkInterface != null) {
+			multicastSocket.setNetworkInterface(networkInterface);
+			System.out.println("TARGETING WLAN1");
+		}
 
 		// send the first disclosure schedule
 		broadcastDisclosureSchedule();
