@@ -121,7 +121,7 @@ public class StreamingServer {
 
 		// sleep
 		try {
-			Thread.sleep(INTERVAL_DURATION);
+			Thread.sleep(keyChain.getIntervalDuration());
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
