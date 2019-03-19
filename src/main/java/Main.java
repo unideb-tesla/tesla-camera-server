@@ -1,12 +1,19 @@
 public class Main {
 
-	public static final String ADDRESS = "230.1.2.3";
-	public static final int PORT = 9999;
-	public static final String WEBAPP_ADDRESS = "http://localhost:8080/";
-
 	public static void main(String[] args) {
 
-		StreamingServer streamingServer = new StreamingServer(ADDRESS, PORT, WEBAPP_ADDRESS);
+		if(args.length != 3){
+
+			System.out.println("You must provide: broadcast address, broadcast port and webapp address as command line arguments!");
+			return;
+
+		}
+
+		String broadcastAddress = args[0];
+		int broadcastPort = Integer.parseInt(args[1]);
+		String webappAddress = args[2];
+
+		StreamingServer streamingServer = new StreamingServer(broadcastAddress, broadcastPort, webappAddress);
 
 		streamingServer.start();
 
