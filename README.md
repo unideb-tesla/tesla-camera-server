@@ -16,4 +16,5 @@ To run the server, you must provide the following things as command line argumen
 * the address of the web application (to query data from)
 
 Then you can run the server like this:
+
 `java -jar target/tesla-camera-server-1.0-SNAPSHOT-jar-with-dependencies.jar 230.1.2.3 9999 http://localhost:8080/`
